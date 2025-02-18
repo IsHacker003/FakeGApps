@@ -14,8 +14,8 @@ android {
         applicationId = "inc.whew.android.fakegapps"
         minSdk = 15
         targetSdk = 35
-        versionCode = 12
-        versionName = "6.5"
+        versionCode = 13
+        versionName = "6.6"
     }
 
     signingConfigs {
