@@ -9,11 +9,13 @@ import android.util.ArraySet;
 import android.util.Base64;
 
 import java.io.ByteArrayInputStream;
+import java.lang.ReflectiveOperationException;
 import java.lang.reflect.Constructor;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.PublicKey;
+import java.util.AbstractMap.SimpleEntry;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
@@ -117,6 +119,26 @@ public class FakeSignatures implements IXposedHookLoadPackage {
         throw exc;
     }
 
+    private static <T> T invokeFirstConstructor(
+        Class<T> cls,
+        SimpleEntry<Class<?>[], Object[]>... candidates
+    ) throws ReflectiveOperationException {
+        NoSuchMethodException exc = new NoSuchMethodException();
+        for (SimpleEntry<Class<?>[], Object[]> candidate : candidates) {
+            Constructor<T> constructor;
+            try {
+                constructor = cls.getDeclaredConstructor(candidate.getKey());
+            } catch (NoSuchMethodException e) {
+                exc = e;
+                continue;
+            }
+
+            constructor.setAccessible(true);
+            return constructor.newInstance(candidate.getValue());
+        }
+        throw exc;
+    }
+
     @TargetApi(android.os.Build.VERSION_CODES.P)
     private SigningInfo createSigningInfo(Signature sig, PublicKey publicKey) {
         final int SIGNING_BLOCK_V3 = 3;
@@ -132,19 +154,34 @@ public class FakeSignatures implements IXposedHookLoadPackage {
                 // Android 9 to 12 have SigningDetails embedded in the PackageParser class
                 "android.content.pm.PackageParser$SigningDetails"
             );
-            // https://cs.android.com/android/platform/superproject/+/1c19b376095446666df2b2d9290dac3ef71da846:frameworks/base/core/java/android/content/pm/SigningDetails.java;l=146
-            Constructor<?> signingDetailsConstructor = signingDetailsClass.getDeclaredConstructor(
-                Signature[].class, // signatures
-                int.class, // signatureSchemeVersion
-                ArraySet.class, // keys
-                Signature[].class // pastSigningCertificates
+            Object signingDetails = invokeFirstConstructor(
+                signingDetailsClass,
+                // https://cs.android.com/android/platform/superproject/+/android-15.0.0_r17:frameworks/base/core/java/android/content/pm/SigningDetails.java;l=146
+                new SimpleEntry<Class<?>[], Object[]>(
+                    new Class<?>[]{
+                        Signature[].class, // signatures
+                        int.class, // signatureSchemeVersion
+                        ArraySet.class, // keys
+                        Signature[].class // pastSigningCertificates
+                    },
+                    new Object[]{sigs, SIGNING_BLOCK_V3, pks, null}
+                ),
+                // Android 9 had an extra "pastSigningCertificatesFlags" argument
+                // https://cs.android.com/android/platform/superproject/+/android-9.0.0_r60:frameworks/base/core/java/android/content/pm/PackageParser.java;l=5739
+                new SimpleEntry<Class<?>[], Object[]>(
+                    new Class<?>[]{
+                        Signature[].class, // signatures
+                        int.class, // signatureSchemeVersion
+                        ArraySet.class, // keys
+                        Signature[].class, // pastSigningCertificates
+                        int[].class // pastSigningCertificatesFlags
+                    },
+                    new Object[]{sigs, SIGNING_BLOCK_V3, pks, null, null}
+                )
             );
+
             Constructor<SigningInfo> signingInfoConstructor = SigningInfo.class.getDeclaredConstructor(signingDetailsClass);
-
-            signingDetailsConstructor.setAccessible(true);
             signingInfoConstructor.setAccessible(true);
-
-            Object signingDetails = signingDetailsConstructor.newInstance(sigs, SIGNING_BLOCK_V3, pks, null);
             return signingInfoConstructor.newInstance(signingDetails);
         } catch (Exception e) {
             XposedBridge.log(String.format("%s failed to create signingInfo", TAG));
