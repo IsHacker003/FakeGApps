@@ -42,7 +42,7 @@ public class FakeSignatures implements IXposedHookLoadPackage {
                 PackageInfo pi = (PackageInfo) param.getResult();
                 if (pi != null) {
                     String packageName = pi.packageName;
-                    if (packageName.equals("com.google.android.gms") || packageName.equals("com.android.vending")) {
+                    if (packageName.equals("com.google.android.gms") || packageName.equals("com.android.vending") || packageName.equals("app.revanced.android.gms") || packageName.equals("lanchon.sigspoof.checker")) {
                         pi.signatures = new Signature[]{new Signature(certBytes)};
 
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
